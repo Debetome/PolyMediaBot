@@ -21,13 +21,13 @@ download_t* new_download(char *url, char *filename, FILE *fp) {
 }
 
 void download_file(download_t *download) {
-  curl_easy_perform(download->curl);
+  download->response = curl_easy_perform(download->curl);
 
   if (download->response != CURLE_OK) {
     fprintf(stderr, "Error: %s\n", 
         curl_easy_strerror(download->response));
   }
-  printf("[*] download_ted\n");
+  printf("[*] downloaded\n");
 }
 
 void clean_download(download_t *download) {

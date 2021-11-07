@@ -1,6 +1,6 @@
-from polyMediaBot.core.videoDownloader import VideoDownloader
+from polyMediaBot.core.videoParser import VideoParser
 #from polyMediaBot.core.logger import Logger
-from polyMediaBot.downloaders import DownloaderFactory
+from polyMediaBot.parsers import ParserFactory
 from polyMediaBot.utils import download
 from polyMediaBot.constants import *
 
@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import logging
+import os
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,39 +40,41 @@ class PolyMediaBot:
     updater: Updater
     dispatcher: Any
     state: State
-    downloader: VideoDownloader
+    parser: VideoParser
 
     def __init__(self, updater: Updater):
         self.updater = updater
         self.dispatcher = self.updater.dispatcher
         self.state = None
-        self.downloader = None
-
+        self.parser = None
 
     def start(self, update: Update, context: CallbackContext):
         update.message.reply_text("Please type /download")
 
+    def help(self, update: Update, context: CallbackContext):
+        update.message.reply_text("Help command!")
+
     def start_download(self, update: Update, context: CallbackContext):
         keyboard = [
             [
-                InlineKeyboardButton("YouTube", callback_data=Downloader.YOUTUBE.value), 
-                InlineKeyboardButton("Vimeo", callback_data=Downloader.VIMEO.value)
+                InlineKeyboardButton("YouTube", callback_data=Parser.YOUTUBE.value), 
+                InlineKeyboardButton("Vimeo", callback_data=Parser.VIMEO.value)
             ],
-            [InlineKeyboardButton("Instagram", callback_data=Downloader.INSTAGRAM.value)]
+            [InlineKeyboardButton("Instagram", callback_data=Parser.INSTAGRAM.value)]
         ]
 
         reply_markup = InlineKeyboardMarkup(keyboard)
         message = "Choose a page to download a video from"
         update.message.reply_text(message, reply_markup=reply_markup)
 
-        self.state = State.SELECT_DOWNLOADER.value
+        self.state = State.SELECT_PARSER.value
         return self.state
 
-    def select_downloader(self, update: Update, context: CallbackContext):
+    def select_parser(self, update: Update, context: CallbackContext):
         query = update.callback_query
         query.answer()
         choice = query.data
-        self.downloader = DownloaderFactory.get(choice)
+        self.parser = ParserFactory.get(choice)
 
         query.edit_message_text(text="Send video url ...")
         self.state = State.PARSING_URL.value
@@ -79,7 +82,7 @@ class PolyMediaBot:
 
     def parse_url(self, update: Update, context: CallbackContext):
         url = update.message.text
-        self.downloader.info.url = url
+        self.parser.info.url = url
 
         keyboard = [
             [
@@ -101,16 +104,16 @@ class PolyMediaBot:
         query = update.callback_query
         query.answer()
         file_type = query.data
-        self.downloader.properties.file_extension = file_type
+        self.parser.properties.file_extension = file_type
 
         if file_type != Type.VIDEO.value:
             self.download(context.bot, query)
             return ConversationHandler.END
 
         keyboard = [
-            [InlineKeyboardButton(Quality.HIGH.value, callback_data=Quality.HIGH.value)],
-            [InlineKeyboardButton(Quality.MEDIUM.value, callback_data=Quality.MEDIUM.value)],
-            [InlineKeyboardButton(Quality.LOW.value, callback_data=Quality.LOW.value)]
+            [InlineKeyboardButton("High", callback_data=Quality.HIGH.value)],
+            [InlineKeyboardButton("Medium", callback_data=Quality.MEDIUM.value)],
+            [InlineKeyboardButton("Low", callback_data="240p")]
         ]
 
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -127,7 +130,7 @@ class PolyMediaBot:
         quality = query.data
 
         query.edit_message_text(text="Options parsed!")
-        self.downloader.properties.resolution = quality
+        self.parser.properties.resolution = quality
         self.download(context.bot, query)
 
         return ConversationHandler.END
@@ -135,29 +138,36 @@ class PolyMediaBot:
     def download(self, bot: Any, query: CallbackQuery):
         bot.send_message(chat_id=query.message.chat_id,
                 text="Downloading file ...")
-        self.downloader.download()
 
-        filename = self.downloader.info.name.replace("\"", "")
-        filename = filename.replace(":", "")
-        filename = filename.replace("#", "")
-        file_type = self.downloader.properties.file_extension
-        
-        filename = f"{filename}.{file_type}"
+        try:
+            self.parser.parse()
+        except:
+            bot.send_message(chat_id=query.message.chat_id,
+                    text="Unable to fetch video data!")
+            return ConversationHandler.END
+
+        file_type = self.parser.properties.file_extension
+        filename = download.download_file(self.parser.info.url, f"file.{file_type}")
 
         bot.send_message(chat_id=query.message.chat_id,
             text="Sending file ...")
 
         try:
             bot.send_video(chat_id=query.message.chat_id,
-                video=open(filename, "rb"))
-        except Exception as ex:
-            print(ex)
-            bot.send_message(chat_id=query.message.chat_id,
-                text="File too large! :C")
-            return ConversationHandler.END
+                    video=self.parser.info.url)
+        except:
+            try:
+                bot.send_video(chat_id=query.message.chat_id,
+                    video=open(filename, "rb"))
+            except Exception as ex:
+                print(ex)
+                bot.send_message(chat_id=query.message.chat_id,
+                    text="File too large! :C")
+                return ConversationHandler.END
 
         bot.send_message(chat_id=query.message.chat_id,
             text="Video sent! :)")
+        os.system(f"rm -rf {filename}")
 
     def cancel(self, update: Update, context: CallbackContext):
         update.message.reply_text("Download cancelled!")
@@ -167,7 +177,7 @@ class PolyMediaBot:
         conversation = ConversationHandler(
             entry_points=[CommandHandler("download", self.start_download)],
             states={
-                State.SELECT_DOWNLOADER.value: [CallbackQueryHandler(self.select_downloader)],
+                State.SELECT_PARSER.value: [CallbackQueryHandler(self.select_parser)],
                 State.PARSING_URL.value: [MessageHandler(Filters.text & ~Filters.command, self.parse_url)],
                 State.SELECT_TYPE.value: [CallbackQueryHandler(self.select_type)],
                 State.SELECT_QUALITY.value: [CallbackQueryHandler(self.select_quality)],

@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 @dataclass
 class VideoInfo:
-    link: str = None
+    url: str = None
     name: str = None
     views: int = None
     likes: int = None
@@ -12,4 +12,5 @@ class VideoInfo:
 @dataclass
 class VideoProperties:
     resolution: str = None
-    file_extension: str = None
+    file_type: str = None
+    duration: float = None

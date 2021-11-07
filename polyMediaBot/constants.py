@@ -1,7 +1,7 @@
 from enum import Enum, auto
 
 class State(Enum):
-    SELECT_DOWNLOADER = 0
+    SELECT_PARSER = 0
     PARSING_URL = 1
     SELECT_TYPE = 2
     SELECT_QUALITY = 3
